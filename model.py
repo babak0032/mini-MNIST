@@ -27,6 +27,7 @@ class Model():
                  num_samples,
                  num_pixels=784,
                  num_hidden=400,
+                 num_style=10,
                  exp_name=None,
                  weights_path="weights"):
 
@@ -42,8 +43,8 @@ class Model():
         self.N_test = len(self.test_data)*data.batch_size
         self.bias_test = (self.N_test - 1) / (data.batch_size - 1)
 
-        self.enc = architecture.Encoder(num_pixels=num_pixels, num_hidden=num_hidden)
-        self.dec = architecture.Decoder(num_pixels=num_pixels, num_hidden=num_hidden)
+        self.enc = architecture.Encoder(num_pixels=num_pixels, num_hidden=num_hidden, num_style=num_style)
+        self.dec = architecture.Decoder(num_pixels=num_pixels, num_hidden=num_hidden, num_style=num_style)
 
         if exp_name:
             self.enc.load_state_dict(torch.load('%s/%s-enc.rar'
@@ -76,9 +77,11 @@ class Model():
         loss = self.loss(q=q, p=p)
         loss.backward()
         self.optimizer.step()
-        return loss, self.mutual_information(q=q, p=p, bias=1) / self.N_train
+        return loss / self.N_train, \
+               self.mutual_information(q=q, p=p, bias=1) / self.N_train
 
     def test(self):
+        test_loss = 0
         self.enc.eval()
         self.dec.eval()
         I = 0
@@ -90,15 +93,17 @@ class Model():
             p = self.dec(images, q, num_samples=self.num_samples,
                                     batch_size=self.data.batch_size)
             loss = self.loss(q=q, p=p)
+            test_loss += loss
             I += self.mutual_information(q=q, p=p, bias=self.bias_test)
-        return loss, I / self.N_test
+        return test_loss / self.N_test, I / self.N_test
 
     def mutual_information(self, q, p, bias):
         z = [n for n in q.sampled() if n in p]
         with torch.no_grad():
             log_joint_avg_qz, _, _ = q.log_batch_marginal(sample_dim=0,
                                                           batch_dim=1,
-                                                          nodes=z, bias=bias)
+                                                          nodes=z,
+                                                          bias=bias)
             log_qz = q.log_joint(sample_dim=0, batch_dim=1, nodes=z)
             I = (log_qz - log_joint_avg_qz).sum()
             if CUDA:
